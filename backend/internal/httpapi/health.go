@@ -15,7 +15,7 @@ func Health(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 
-	if err := json.NewEncoder(w).Encode(healthResponse{Status: "ok"}); err != nil {
+	if err := json.NewEncoder(w).Encode(healthResponse{Status: "ng"}); err != nil {
 		slog.ErrorContext(r.Context(), "failed to write health response", "error", err)
 	}
 }
