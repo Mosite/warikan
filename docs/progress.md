@@ -10,24 +10,25 @@
 - 開始日:2026-11-17
 - 現在:第1月 W1 後半
 - 次にやること:
-  1. Go言語基礎(エラー処理、interface、context)を、書いたコードを題材に確認する
-  2. W1の振り返り(チェックリスト「CIが落ちるとマージできない理由」の口頭試問を含む。必須チェックの登録と `integration_id` の意味まで説明できるかを見る)
+  1. W1の振り返り(チェックリスト「CIが落ちるとマージできない理由」の口頭試問を含む。必須チェックの登録と `integration_id` の意味まで説明できるかを見る)
+  2. W2 開始:Dockerマルチステージビルド → `/health` だけの状態で Fly.io へデプロイ
 
 ## プロジェクトの状態
 
 - リポジトリ:`Mosite/warikan`(公開)
 - 構成(モノレポ):
   - `backend/`:Goモジュール `github.com/Mosite/warikan/backend`(Go 1.27.4、chi v5)
-    - `cmd/api/main.go`:起動処理(環境変数 `PORT`、既定 8080、`ReadHeaderTimeout` 設定済み)
+    - `cmd/api/main.go`:起動処理(環境変数 `PORT`、既定 8080、`ReadHeaderTimeout` 設定済み)。グレースフルシャットダウン対応済み(`signal.NotifyContext` で SIGINT/SIGTERM を受け、`srv.Shutdown` を `shutdownTimeout` 10秒で実行。シャットダウン用の context は `context.Background()` から作る)。自動テストはなく、シグナルでの停止(終了コード0)とポート使用中での失敗(終了コード1)を手動で確認済み
     - `internal/httpapi/health.go` と `health_test.go`:`GET /health` → `200 {"status":"ok"}`(テストのリクエストは `httptest.NewRequestWithContext(t.Context(), ...)`)
     - `.golangci.yml`:golangci-lint v2 の設定。`standard` に `bodyclose`・`errorlint`・`gosec`・`noctx` を追加。errcheck は `check-blank` と `check-type-assertions` を有効化
   - `.github/workflows/backend-ci.yml`:PRと `main` へのpushで動く。ジョブは2つで並列実行
     - `backend-test`:gofmt チェック、`go mod tidy -diff`、`go vet`、`go test -race`
     - `backend-lint`:`golangci/golangci-lint-action@v9`、golangci-lint `v2.15.0` 固定、`working-directory: backend`
-- マージ済みPR:#1〜#7(#3 `/health`、#5 CI、#7 golangci-lint)
+- マージ済みPR:#1〜#9(#3 `/health`、#5 CI、#7 golangci-lint、#9 グレースフルシャットダウン)
 - 本番URL:なし(W2で作る)
 - 手元の環境:Go は Homebrew の 1.27.4 に一本化済み(旧 `/usr/local/go` は削除)。golangci-lint は Homebrew の v2.15.0(built with go1.27.2。`go.mod` の 1.27.4 とは言語バージョンが同じなので問題なく動くことを確認済み)。`gh` は認証済み。`gh` のエディタは vim。プロンプトは Starship
 - lint の実行:`backend/` で `golangci-lint run ./...`。設定の検証は `golangci-lint config verify`
+- 使い捨ての実験は `~/go-sandbox/` で行う(リポジトリの外)。ビルドした実行ファイルも `go build -o ~/go-sandbox/api ./cmd/api` のように外へ出す
 
 ## リポジトリの設定(確認済み)
 
@@ -38,7 +39,7 @@
 
 ## 完了したマイルストーン
 
-- 第1月W1:開発環境構築、Gitブランチ運用の取り決めとブランチ保護、Goプロジェクト雛形、`/health` とハンドラーテスト、GitHub Actions のCI(gofmt / vet / test)稼働、golangci-lint の導入(手元とCI、必須チェック化。2026-11-23)。残りは Go言語基礎の確認と振り返り
+- 第1月W1:開発環境構築、Gitブランチ運用の取り決めとブランチ保護、Goプロジェクト雛形、`/health` とハンドラーテスト、GitHub Actions のCI(gofmt / vet / test)稼働、golangci-lint の導入(手元とCI、必須チェック化。2026-11-23)、Go言語基礎の確認(エラー処理・interface・context。題材としてグレースフルシャットダウンを実装。2026-11-23)。残りは振り返り
 
 ## 今月のチェックリスト(第1月)
 
@@ -91,6 +92,17 @@ ADR にするほどではないが、後のセッションが知っておくべ�
 - 2026-11-23:DB向けの linter(`sqlclosecheck`・`rowserrcheck` など)は、DBのコードが入るW2以降に追加する
 - 2026-11-23:lint の指摘は除外設定で逃がさず、コードを直す。テストのリクエストには `t.Context()` を渡す
 - 2026-11-23:CIの checkout と setup-go は `test` と `lint` の2ジョブで重複しているが、許容する。共通化は3つ目のジョブが増えて痛みが出たときに検討する
+- 2026-11-23:`shutdownTimeout` は10秒。W2 で `fly.toml` を書くとき、Fly.io が強制終了するまでの猶予(`kill_timeout`)をこれより長くする
+- 2026-11-23:`cmd/api` には自動テストを書かない(起動の組み立てだけで、テストの仕組みが大がかりになるため)。`run()` に分岐が増えて手動確認がつらくなったら再検討する
+
+### Go言語基礎の確認で、つまずいた点と理解した点(2026-11-23)
+
+後の口頭試問や復習で掘り下げる材料として残す。
+
+- エラー処理:`%v` でラップすると見た目は変わらず鎖だけが失われる点を、最初は「メッセージが変わる」と誤解していた。`Error()` が内側の `Error()` を連結して組み立てること、`%T` で `*fmt.wrapError` と `*errors.errorString` に分かれることを実験で確認して理解した
+- interface:実験で `hello` を `hello()` と写し間違えた(関数値と関数呼び出しの区別)。`http.HandlerFunc` が型変換によるアダプターであること、chi の `Get` が `HandlerFunc` を受け取るので包まずに渡せることを理解した。interface は「要求する側」、具体的な型は「実装する側」という用語の区別を確認した
+- context:キャンセルは協力的で、受け取る側が `ctx.Done()` を見なければ止まらないことを理解した
+- その他に質問が出た点:`:=` と `=` の違い、チャネル演算子 `<-`、`go build` の引数、`git push -u` と `gh pr create` の推測の違い
 
 ## ADR 一覧
 
