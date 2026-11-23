@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -15,6 +18,7 @@ import (
 const (
 	defaultPort       = "8080"
 	readHeaderTimeout = 5 * time.Second
+	shutdownTimeout   = 10 * time.Second
 )
 
 func main() {
@@ -25,6 +29,9 @@ func main() {
 }
 
 func run() error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = defaultPort
@@ -39,9 +46,28 @@ func run() error {
 		ReadHeaderTimeout: readHeaderTimeout,
 	}
 
+	serverErr := make(chan error, 1)
 	slog.Info("starting server", "addr", srv.Addr)
-	if err := srv.ListenAndServe(); err != nil {
+	go func() {
+		serverErr <- srv.ListenAndServe()
+	}()
+
+	select {
+	case err := <-serverErr:
 		return fmt.Errorf("listen and serve: %w", err)
+	case <-ctx.Done():
 	}
+
+	stop()
+	slog.Info("shutting down server")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		return fmt.Errorf("shutdown: %w", err)
+	}
+
+	slog.Info("server stopped gracefully")
 	return nil
 }
