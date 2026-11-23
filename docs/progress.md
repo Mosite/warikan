@@ -3,17 +3,15 @@
 このファイルは、セッションをまたいで Claude Code に現在地を伝えるための記録である。
 **Claude Code だけが更新し、学習者は触れない**(`CLAUDE.md` §8)。区切りごとに Claude Code が更新し、コミットとPRは学習者が行う。古い振り返りは削除せず、末尾の「振り返りの履歴」へ移す。
 
-最終更新:2026-11-22
+最終更新:2026-11-23
 
 ## 現在地
 
 - 開始日:2026-11-17
 - 現在:第1月 W1 後半
 - 次にやること:
-  1. `golangci-lint` を手元に入れて動かす(`brew install golangci-lint`。`golangci-lint --version` で `built with go1.27` 以上かを確認し、`gh release view --repo golangci/golangci-lint` で最新版を確認する)
-  2. 設定ファイルを作り、CI(`.github/workflows/backend-ci.yml`)に追加する。CIでのバージョンは固定する
-  3. Go言語基礎(エラー処理、interface、context)を、書いたコードを題材に確認する
-  4. W1の振り返り(チェックリスト「CIが落ちるとマージできない理由」の口頭試問を含む)
+  1. Go言語基礎(エラー処理、interface、context)を、書いたコードを題材に確認する
+  2. W1の振り返り(チェックリスト「CIが落ちるとマージできない理由」の口頭試問を含む。必須チェックの登録と `integration_id` の意味まで説明できるかを見る)
 
 ## プロジェクトの状態
 
@@ -21,22 +19,26 @@
 - 構成(モノレポ):
   - `backend/`:Goモジュール `github.com/Mosite/warikan/backend`(Go 1.27.4、chi v5)
     - `cmd/api/main.go`:起動処理(環境変数 `PORT`、既定 8080、`ReadHeaderTimeout` 設定済み)
-    - `internal/httpapi/health.go` と `health_test.go`:`GET /health` → `200 {"status":"ok"}`
-  - `.github/workflows/backend-ci.yml`:PRと `main` へのpushで gofmt チェック、`go mod tidy -diff`、`go vet`、`go test -race` を実行。ジョブ名 `backend-test`
-- マージ済みPR:#1〜#5(#3 `/health`、#5 CI)
+    - `internal/httpapi/health.go` と `health_test.go`:`GET /health` → `200 {"status":"ok"}`(テストのリクエストは `httptest.NewRequestWithContext(t.Context(), ...)`)
+    - `.golangci.yml`:golangci-lint v2 の設定。`standard` に `bodyclose`・`errorlint`・`gosec`・`noctx` を追加。errcheck は `check-blank` と `check-type-assertions` を有効化
+  - `.github/workflows/backend-ci.yml`:PRと `main` へのpushで動く。ジョブは2つで並列実行
+    - `backend-test`:gofmt チェック、`go mod tidy -diff`、`go vet`、`go test -race`
+    - `backend-lint`:`golangci/golangci-lint-action@v9`、golangci-lint `v2.15.0` 固定、`working-directory: backend`
+- マージ済みPR:#1〜#7(#3 `/health`、#5 CI、#7 golangci-lint)
 - 本番URL:なし(W2で作る)
-- 手元の環境:Go は Homebrew の 1.27.4 に一本化済み(旧 `/usr/local/go` は削除)。`gh` は認証済み。`gh` のエディタは vim
+- 手元の環境:Go は Homebrew の 1.27.4 に一本化済み(旧 `/usr/local/go` は削除)。golangci-lint は Homebrew の v2.15.0(built with go1.27.2。`go.mod` の 1.27.4 とは言語バージョンが同じなので問題なく動くことを確認済み)。`gh` は認証済み。`gh` のエディタは vim。プロンプトは Starship
+- lint の実行:`backend/` で `golangci-lint run ./...`。設定の検証は `golangci-lint config verify`
 
 ## リポジトリの設定(確認済み)
 
 - マージ方式:squash のみ。コミットの1行目はPRタイトル、本文はPRの本文(`PR_TITLE` / `PR_BODY`)。マージ済みブランチは自動削除
 - Secret scanning と Push protection:有効
-- ルールセット `main-protection`(ID 27447374、Active、bypass list は空):削除禁止、force push 禁止、linear history 必須、PR必須(承認数0、squashのみ)、status check `backend-test` の成功必須(up to date 必須)
+- ルールセット `main-protection`(ID 27447374、Active、bypass list は空):削除禁止、force push 禁止、linear history 必須、PR必須(承認数0、squashのみ)、status check `backend-test` と `backend-lint` の成功必須(どちらも GitHub Actions、`integration_id` 15368 に紐付け。up to date 必須)。ジョブの `name:` を変えるときはルールセットも同時に更新する
 - 動作確認済み:`main` への直接 push は拒否される。CIが落ちたPRはマージできない(`--admin` も不可)
 
 ## 完了したマイルストーン
 
-- 第1月W1:開発環境構築、Gitブランチ運用の取り決めとブランチ保護、Goプロジェクト雛形、`/health` とハンドラーテスト、GitHub Actions のCI(gofmt / vet / test)稼働。残りは `golangci-lint` と Go言語基礎の確認
+- 第1月W1:開発環境構築、Gitブランチ運用の取り決めとブランチ保護、Goプロジェクト雛形、`/health` とハンドラーテスト、GitHub Actions のCI(gofmt / vet / test)稼働、golangci-lint の導入(手元とCI、必須チェック化。2026-11-23)。残りは Go言語基礎の確認と振り返り
 
 ## 今月のチェックリスト(第1月)
 
@@ -58,7 +60,7 @@
 
 - [should] 端数処理ルールを例示ではなく仕様として1つに決める(§3 ドメインルール)。第2月W2の債務計算より前に必要
 - [should] 通貨の範囲(円のみか、グループごとに1通貨か)を決める(§3 ドメインルール)。第1月W3の支出テーブル設計より前に必要
-- [should] ディレクトリ構成・ブランチ運用・各種コマンド(起動、lint、テスト、単一テスト、マイグレーション)を `CLAUDE.md` に追記する。ディレクトリ構成・ブランチ運用・起動・テストは決まった。lint とマイグレーションが決まったら、学習者の依頼を受けてまとめて追記する
+- [should] ディレクトリ構成・ブランチ運用・各種コマンド(起動、lint、テスト、単一テスト、マイグレーション)を `CLAUDE.md` に追記する。ディレクトリ構成・ブランチ運用・起動・テスト・lint は決まった。マイグレーションが決まったら、学習者の依頼を受けてまとめて追記する
 
 ## 決定事項
 
@@ -85,6 +87,10 @@ ADR にするほどではないが、後のセッションが知っておくべ�
 - 2026-11-19:モノレポ構成とし、Go のコードは `backend/` に置く。実行ファイルの入口は `cmd/<名前>/`、非公開のパッケージは `internal/` の下
 - 2026-11-22:CI のランナーは `ubuntu-latest`。`staging` ブランチは作らない(環境を分ける必要が出たら、ブランチではなく GitHub Environments で分ける)
 - 2026-11-22:`docs/progress.md` は Claude Code だけが更新し、学習者は触れない(`CLAUDE.md` §2 ルール2、§8)
+- 2026-11-23:golangci-lint は CI で `v2.15.0` に固定する(`latest` にすると、コードを変えていないのにCIが落ちることがあるため)。上げるときはPRで意図して上げ、手元も揃える
+- 2026-11-23:DB向けの linter(`sqlclosecheck`・`rowserrcheck` など)は、DBのコードが入るW2以降に追加する
+- 2026-11-23:lint の指摘は除外設定で逃がさず、コードを直す。テストのリクエストには `t.Context()` を渡す
+- 2026-11-23:CIの checkout と setup-go は `test` と `lint` の2ジョブで重複しているが、許容する。共通化は3つ目のジョブが増えて痛みが出たときに検討する
 
 ## ADR 一覧
 
